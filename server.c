@@ -61,8 +61,51 @@ void freeFiles()
     free(files);
 }
 
+int removeFile(char *filename) {
+    int i, found = 0;
+
+    // Find the index of the file in the array
+    for (i = 0; i < file_number; i++) {
+        if (files[i].name != NULL && strcmp(files[i].name, filename) == 0) {
+            found = 1;
+            break;
+        }
+    }
+
+    if (found) {
+        // Free memory for the file data
+        free(files[i].name);
+
+        for (int j = 0; j < files[i].in10; j++) {
+            free(files[i].top10[j]);
+        }
+        free(files[i].top10);
+        free(files[i].count10);
+
+        for (int j = 0; j < files[i].words_total; j++) {
+            free(files[i].words[j]);
+        }
+        free(files[i].words);
+        free(files[i].word_count);
+
+        for (int j = i; j < file_number - 1; j++) {
+            files[j] = files[j + 1];
+        }
+
+        file_number--;
+
+        // Resize the files array
+        files = realloc(files, sizeof(file_data) * file_number);
+
+        return 1; // Success
+    } else {
+        return 0; // File not found
+    }
+}
+
 int addFile(char *filename)
 {
+
     files[file_number].name = (char*) malloc (sizeof(char) * strlen(filename));
     strcpy(files[file_number].name, filename);
     files[file_number].name[strlen(filename)] = NULL;
@@ -116,14 +159,17 @@ int searchForFile(char *filename)
 {
     if(file_number < 0)
         return 0; //no files
+    
+    printf("%s1\n", filename);
 
     int i = 0;
     for(int i = 0; i < file_number; i++)
     {
-        if(strcmp(files[i].name, filename)==0)
-            return 1;
+        printf("%d", i);
+        if(strstr(files[i].name, filename)!=NULL)
+            return i;
     }
-    return 0;
+    return -1;
 }
 
 int inTop10(char *filename, char *word)
@@ -306,6 +352,26 @@ char *semicol_strtok(char *start, int *startpoz) //kind of strtok
     return aux;
 }
 
+void checkFiles()
+{
+    printf("Files:\n");
+    for(int i = 0; i < file_number; i++)
+        printf("%s\n", files[i].name);
+}
+
+int deleteFile(const char *filepath) {
+    if (unlink(filepath) == 0) {
+        printf("File deleted successfully: %s\n", filepath);
+        removeFile(filepath);
+        checkFiles();
+
+        return 0;  // Success
+    } else {
+        perror("Error deleting file");
+        return -1;  // Failure
+    }
+}
+
 void handle_instruction(int client_desc, int operation, char *client_message) {
     char server_message[2000];
 
@@ -417,7 +483,7 @@ void handle_instruction(int client_desc, int operation, char *client_message) {
 
                 int file_fd = open(filepath, O_RDONLY);
                 // Sending status (0x0 for success).
-                    struct stat file_stat;
+                struct stat file_stat;
                 if (fstat(file_fd, &file_stat) == -1) {
                     perror("Error getting file information");
                     close(file_fd);
@@ -456,11 +522,37 @@ void handle_instruction(int client_desc, int operation, char *client_message) {
             snprintf(server_message, sizeof(server_message), "UPLOAD operation result");
             break;
 
+        case 0x4: //DELETE
+            int op2 = -1;
+            int path_bytes2 = -1;
+            char filepath2[MAX_PATH_LENGTH] = "";
+            
+            // Parse the string
+            int fields_parsed2 = sscanf(client_message, "%x; %d; %[^\n]", &op2, &path_bytes2, filepath2);
+            printf("Aici 1\n");
+            if (fields_parsed2 != 3) {
+                printf("Error parsing the string.\n");
+                // Handle error or set default values
+            }
+
+            if(searchForFile(filepath2) > -1)
+            {
+                printf("File found\n");
+                if (deleteFile(filepath2) == 0) {
+                    snprintf(server_message, sizeof(server_message), "%x", SUCCESS);
+                } else {
+                    snprintf(server_message, sizeof(server_message), "%x", OTHER_ERROR);
+                }
+            }
+            else {
+                snprintf(server_message, sizeof(server_message), "%x", OTHER_ERROR);
+            }
+            break;
         // Add cases for other operations
 
         default:
             // Handle unknown operation
-            snprintf(server_message, sizeof(server_message), "%x; Unknown operation", UNKNOWN_OPERATION);
+            snprintf(server_message, sizeof(server_message), "%x", UNKNOWN_OPERATION);
             break;
     }
     
@@ -571,11 +663,13 @@ int main(int argc, char **argv) {
     addAllFiles();
 
     while (1) {
+        printf("Entered while\n");
         struct epoll_event events[CLIENTS];
         int num_events = epoll_wait(epoll_fd, events, CLIENTS, -1);
 
         for (int i = 0; i < num_events; ++i) {
             if (events[i].data.fd == socket_desc) {
+                printf("Entered events\n");
                 // Accept new connections
                 client_size = sizeof(client_addr);
                 client_sock = accept(socket_desc, (struct sockaddr *)&client_addr, &client_size);

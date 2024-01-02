@@ -9,6 +9,7 @@
 #include <pthread.h>
 #include <fcntl.h>
 #include <sys/epoll.h>
+#include <sys/stat.h>
 #include <dirent.h>
 
 #define SERVER_PORT 90002

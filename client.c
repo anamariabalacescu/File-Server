@@ -118,9 +118,11 @@ printf("aici\n");
             return -1;
         }
 
-        //printf("aici: %s\n", server_message);
-        if(operation == LIST)
-            parse_server_response(server_message, operation);
+        printf("aici: %s\n", server_message);
+        // if(operation == LIST)
+        //     parse_server_response(server_message, operation);
+        // else
+        //     printf("%s", server_message);
 
     }
 
