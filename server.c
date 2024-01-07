@@ -120,8 +120,9 @@ void listFilesRecursively(char *basePath, file_data *files, int *index) {
         while ((ent = readdir(dir)) != NULL) {
             if (ent->d_type == DT_REG) {  // Check if it's a regular file
                 // Allocate memory for the file_data structure
-                files[*index].name = (char *)malloc(strlen(basePath) + strlen(ent->d_name) + 2);  // +1 for '/', +1 for '\0'
+                files[*index].name = (char *)malloc(strlen(basePath) + strlen(ent->d_name) + 3);  // +1 for '/', +1 for '\0'
                 snprintf(files[*index].name, strlen(basePath) + strlen(ent->d_name) + 2, "%s/%s", basePath, ent->d_name);
+                files[*index].name[strlen(basePath) + strlen(ent->d_name) + 2] = '\0';
 
                 // Initialize other fields in file_data
                 files[*index].top10 = NULL;  // Initialize accordingly
@@ -136,6 +137,7 @@ void listFilesRecursively(char *basePath, file_data *files, int *index) {
                 // Recursive call for directories (skip '.' and '..')
                 char path[2000];
                 snprintf(path, sizeof(path), "%s/%s", basePath, ent->d_name);
+                //path[strlen(basePath) + strlen(ent->d_name) + 1] = '\0';
                 listFilesRecursively(path, files, index);
             }
         }
@@ -144,11 +146,11 @@ void listFilesRecursively(char *basePath, file_data *files, int *index) {
 }
 
 void addAllFiles() {
-    file_data files[100];  // Adjust the size accordingly
+    // Adjust the size accordingly
     int index = 0;
 
     listFilesRecursively(SERVER_STORAGE, files, &index);
-
+    file_number = index;
     // Print or process the file_data structures as needed
     for (int i = 0; i < index; i++) {
         printf("File Name: %s\n", files[i].name);
@@ -372,65 +374,65 @@ int deleteFile(const char *filepath) {
     }
 }
 
-void handle_instruction(int client_desc, int operation, char *client_message) {
+void handle_instruction(int client_desc, uint32_t operation, char *client_message) {
     char server_message[2000];
+
+    //printf("%0x\n", operation);
 
     switch (operation) {
         case 0x0: // LIST
         {
-            DIR *dir;
-            struct dirent *ent;
+            printf("aici cumva\n");
             char file_list[2000];  // Concatenate file names here
-            int index=0;
-            int indexFile=0;
-            snprintf(server_message, sizeof(server_message), "%x\0", SUCCESS);  // Assuming SUCCESS for LIST operation
+            int indexFile = 0;
+            snprintf(server_message, sizeof(server_message), "%x;", SUCCESS);
 
-            if ((dir = opendir(SERVER_STORAGE)) != NULL) {
-                while ((ent = readdir(dir)) != NULL) {
-                    if (ent->d_type == DT_REG) { // Check if it's a regular file
-                       //my_strcat(file_list, ent->d_name);
-                       while(ent->d_name[indexFile]!='\0')
-                        {
-                            file_list[index]=ent->d_name[indexFile];
-                            indexFile++;
-                            index++;
-                        }
-                        file_list[index++]='\0';
-                        indexFile=0;
-                    }
-                }
-                closedir(dir);
-                for(int i=0;i<index;i++){
-                    if(file_list[i]=='\0')
-                        printf("\n");
-                    printf("%c",file_list[i]); 
-                }    
-                int file_list_length = index;
-                char length_str[20];
-                snprintf(length_str, sizeof(length_str), "%zu", file_list_length);
-
-                // Append the file_list length as a string to server_message
-                strcat(server_message, length_str);
-                server_message[strlen(server_message)]='\0';
-
-                // Append the file_list itself to server_message
-                index=strlen(server_message)+1;
-                indexFile=0;
-                while(indexFile<=file_list_length)
+            int i = 0;
+            while (i < file_number)
+            {
+                int j = 0;
+                while (j < strlen(files[i].name))
                 {
-                    server_message[index]=file_list[indexFile];
+                    file_list[indexFile] = files[i].name[j];
                     indexFile++;
-                    index++;
+                    j++;
                 }
-                send(client_desc, server_message, index, 0);
-            } else {
-                perror("Couldn't open the directory");
-                snprintf(server_message, sizeof(server_message), "%x; Error reading directory", FILE_NOT_FOUND);
+                file_list[indexFile] = '\0';  // Add '\0' to separate filenames
+                indexFile++;
+                i++;
             }
+
+            int file_list_length = indexFile;
+
+            char length_str[20];
+            snprintf(length_str, sizeof(length_str), "%zu", file_list_length);
+
+            // Append the file_list length as a string to server_message
+            strcat(server_message, length_str);
+            snprintf(server_message + strlen(server_message), sizeof(server_message) - strlen(server_message), ";");
+            int serverLength = strlen(server_message);
+            // Copy file_list directly into server_message
+            i = 0;
+            while (i < file_number)
+            {
+                int j = 0;
+                while (j < strlen(files[i].name))
+                {
+                    server_message[serverLength] = files[i].name[j];
+                    serverLength++;
+                    j++;
+                }
+                server_message[serverLength] = '\0';  // Add '\0' to separate filenames
+                serverLength++;
+                i++;
+            }
+
+            send(client_desc, server_message, serverLength, 0);
         }
         break;
 
         case 0x1: // DOWNLOAD
+        {
             // Assume you have already opened the file and obtained its file descriptor (file_fd).
             printf("Enter case\n");
             printf("client message: %s\n", client_message);
@@ -514,15 +516,21 @@ void handle_instruction(int client_desc, int operation, char *client_message) {
                 // Close the file descriptor.
                 close(file_fd);
             }
+        }
             break;
 
         case 0x2: // UPLOAD
+            {
             // Implement your logic for UPLOAD operation
             // ...
+            printf("Sau e aici\n");
             snprintf(server_message, sizeof(server_message), "UPLOAD operation result");
+            }
             break;
 
         case 0x4: //DELETE
+            {
+            printf("Aici 1\n");
             int op2 = -1;
             int path_bytes2 = -1;
             char filepath2[MAX_PATH_LENGTH] = "";
@@ -547,10 +555,133 @@ void handle_instruction(int client_desc, int operation, char *client_message) {
             else {
                 snprintf(server_message, sizeof(server_message), "%x", OTHER_ERROR);
             }
+            int serverLength = strlen(server_message);
+            send(client_desc, server_message, serverLength, 0);
+            }
             break;
         // Add cases for other operations
 
+        case 8:
+        {
+            printf("Am primit ceva");
+
+            int i = 0;
+            while(client_message[i] != ';')
+            {
+                i++;
+            }
+            i++; //am trecut de cod operatie => nr bytes srcpath
+
+            char len[10] ="";
+            int j = 0;
+            while(client_message[i] != ';')
+            {
+                len[j] = client_message[i];
+                j++;
+                i++;
+            }
+            i++;
+
+            uint32_t len_src;
+            sprintf(len_src, "%x", len);
+            char *src_filepath = (char*) malloc(len_src);
+            
+            j = 0;
+            while(client_message[i] != '\0')
+            {
+                src_filepath[j] = client_message[i];
+                j++;
+                i++;
+            }
+            i++;
+            src_filepath[j] = '\0';
+
+            strcpy(len[10], "");
+            j = 0;
+            while(client_message[i] != ';')
+            {
+                len[j] = client_message[i];
+                i++;
+                j++;
+            }
+            i++;
+
+
+            uint32_t len_dest;
+            sprintf(len_dest, "%x", len);
+            char *dest_filepath = (char*) malloc(len_src);
+            j = 0;
+            while(client_message[i] != '\0')
+            {
+                dest_filepath[j] = client_message[i];
+                j++;
+                i++;
+            }
+            dest_filepath[j] = '\0';
+
+            printf("Src Nr bytes: %x\n", len_src);
+            printf("Src Filepath: %s\n", src_filepath);
+            printf("Dest Nr bytes: %x\n", len_dest);
+            printf("Dest Filepath: %s\n", dest_filepath);
+
+            //moving file using sendfile
+            // int src_fd = open(src_filepath, O_RDONLY);
+            // if (src_fd == -1) {
+            //     perror("Error opening source file");
+            //     snprintf(server_message, sizeof(server_message), "%x", OTHER_ERROR);
+            //     break;
+            // }
+
+            // int dest_fd = open(dest_filepath, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+            // if (dest_fd == -1) {
+            //     perror("Error opening destination file");
+            //     close(src_fd);
+            //     snprintf(server_message, sizeof(server_message), "%x", OTHER_ERROR);
+            //     break;
+            // }
+
+            // off_t offset = 0;
+            // struct stat src_stat;
+            // if (fstat(src_fd, &src_stat) == -1) {
+            //     perror("Error getting source file information");
+            //     close(src_fd);
+            //     close(dest_fd);
+            //     snprintf(server_message, sizeof(server_message), "%x", OTHER_ERROR);
+            //     break;
+            // }
+
+            // // Sending status (0x0 for success).
+            // uint32_t status = htonl(0x0);
+            // sprintf(server_message, "%x;", status);
+
+            // // Sending the number of response bytes.
+            // uint32_t response_bytes = htonl(src_stat.st_size);
+            // sprintf(server_message + strlen(server_message), " %u;", response_bytes);
+
+            // // Sending file content using sendfile.
+            // ssize_t sent_bytes = sendfile(dest_fd, src_fd, &offset, src_stat.st_size);
+            // if (sent_bytes == -1) {
+            //     perror("Error moving file content");
+            //     close(src_fd);
+            //     close(dest_fd);
+            //     snprintf(server_message, sizeof(server_message), "%x", OTHER_ERROR);
+            //     break;
+            // }
+
+            // // Close file descriptors.
+            // close(src_fd);
+            // close(dest_fd);
+
+            // free(src_filepath);
+            // free(dest_filepath);
+
+            // int serverLength2 = strlen(server_message);
+            // send(client_desc, server_message, serverLength2, 0);
+        }
+            break;
+
         default:
+            printf("A intrat aici\n");
             // Handle unknown operation
             snprintf(server_message, sizeof(server_message), "%x", UNKNOWN_OPERATION);
             break;
@@ -579,11 +710,11 @@ void *handle_client(void *socket_descriptor) {
             break;
         }
 
-        int operation;
+        uint32_t operation;
         sscanf(client_message, "%x", &operation);
 
         printf("Client message: %s\n", client_message);
-
+        printf("Operatie: %x\n", operation);
         //locking connection so it doesn't receive messages while sending out => noise reduction
         pthread_mutex_lock(&mutex);
 
