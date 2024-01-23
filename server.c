@@ -159,15 +159,17 @@ void addAllFiles() {
 
 int searchForFile(char *filename)
 {
+    //printf("search\n");
     if(file_number < 0)
-        return 0; //no files
+        return -1; //no files
     
-    printf("%s1\n", filename);
+    //printf("%s1\n", filename);
 
     int i = 0;
     for(int i = 0; i < file_number; i++)
     {
-        printf("%d", i);
+        //printf("search %d\n", i);
+        //printf("%d", i);
         if(strstr(files[i].name, filename)!=NULL)
             return i;
     }
@@ -374,355 +376,395 @@ int deleteFile(const char *filepath) {
     }
 }
 
-void handle_instruction(int client_desc, uint32_t operation, char *client_message) {
-    char server_message[2000];
+void replace_DIR(char *filepath)
+{
+    printf("Initial path: %s\n", filepath);
+    ///replace ./Server/.....filepath... with ./Client/.....filepath.... => to download
+    if (strncmp(filepath, CLIENT_STORAGE, strlen(CLIENT_STORAGE)) == 0)
+    {
+        memmove(filepath, SERVER_STORAGE, strlen(SERVER_STORAGE));
+        memmove(filepath + strlen(SERVER_STORAGE), filepath + strlen(CLIENT_STORAGE), strlen(filepath) - strlen(CLIENT_STORAGE) + 1);
+    }
+    printf("Modified path: %s\n", filepath);
+}
 
-    //printf("%0x\n", operation);
+void createDirectories(char *filepath) {
+    char *sep = strrchr(filepath, '/');
+    if (sep != NULL) {
+
+        //printf("path in create: %s\n", filepath);
+        *sep = '\0'; // temporarily truncate the path
+        if (mkdir(filepath, 0777) == -1 && errno != EEXIST) {
+            perror("Error creating directories");
+            exit(EXIT_FAILURE);
+        }
+        *sep = '/'; // restore the path
+        chmod(filepath, 0777);
+        //printf("path in create: %s\n", filepath);
+    }
+    //free(sep);
+}
+
+void handle_instruction(int client_desc, uint32_t operation) {//, char *client_message) {
+    char *server_message;
+
+    printf("in handle_instrcution %x\n", operation);
 
     switch (operation) {
-        case 0x0: // LIST
+        case LIST: // LIST
         {
-            printf("aici cumva\n");
-            char file_list[2000];  // Concatenate file names here
-            int indexFile = 0;
-            snprintf(server_message, sizeof(server_message), "%x;", SUCCESS);
+            //printf("treating op_code...\n");
+            uint32_t status = SUCCESS;
 
-            int i = 0;
-            while (i < file_number)
-            {
-                int j = 0;
-                while (j < strlen(files[i].name))
-                {
-                    file_list[indexFile] = files[i].name[j];
-                    indexFile++;
-                    j++;
-                }
-                file_list[indexFile] = '\0';  // Add '\0' to separate filenames
-                indexFile++;
-                i++;
+            send(client_desc, &status, sizeof(status), 0);
+            //we need the files lengths to allocate memory
+            //printf("No files: %x\n", status);
+            uint32_t totalLength = 0;
+            for (int i = 0; i < file_number; i++) {
+                totalLength += strlen(files[i].name) + 1; // +1 for the '\0' separator
+                //printf("%d -> file: %d length: %d\n", i, strlen(files[i].name), totalLength);
+            }
+            //printf("Length: %u\n", totalLength);
+
+            server_message = (char *)malloc(sizeof(char)*(totalLength)); //memory allocated to add filenames parsed by \0
+            
+            if (server_message == NULL) {
+                fprintf(stderr, "Memory allocation failed for server_message.\n");
+                exit(EXIT_FAILURE);
             }
 
-            int file_list_length = indexFile;
-
-            char length_str[20];
-            snprintf(length_str, sizeof(length_str), "%zu", file_list_length);
-
-            // Append the file_list length as a string to server_message
-            strcat(server_message, length_str);
-            snprintf(server_message + strlen(server_message), sizeof(server_message) - strlen(server_message), ";");
-            int serverLength = strlen(server_message);
-            // Copy file_list directly into server_message
-            i = 0;
-            while (i < file_number)
-            {
-                int j = 0;
-                while (j < strlen(files[i].name))
-                {
-                    server_message[serverLength] = files[i].name[j];
-                    serverLength++;
-                    j++;
-                }
-                server_message[serverLength] = '\0';  // Add '\0' to separate filenames
-                serverLength++;
-                i++;
+            uint32_t indexMessage = 0;
+            for (int i = 0; i < file_number; i++) {
+                int filenameLength = strlen(files[i].name);
+                memcpy(server_message + indexMessage, files[i].name, filenameLength);
+                // Add '\0' to separate filenames
+                server_message[indexMessage + filenameLength] = '\0';
+                indexMessage += filenameLength + 1;
             }
 
-            send(client_desc, server_message, serverLength, 0);
+            //printf("files gotten\n");
+            send(client_desc, &indexMessage, sizeof(indexMessage), 0);
+            //printf("length sent\n");
+
+            for(int i = 0; i < indexMessage; i++)
+                if(server_message[i]!='\0')
+                    printf("%c", server_message[i]);
+                else
+                    printf("\n");
+
+            //printf("111111111111111111\n");
+            ssize_t bytes_sent = send(client_desc, server_message, indexMessage, 0);
+            //printf("222222222222222222\n");
+
+            // if (bytes_sent == -1) {
+            //     perror("Error while sending data to the client");
+            // } else {
+            //     printf("Sent %zd bytes to the client\n", bytes_sent);
+            // }
+
         }
         break;
 
-        case 0x1: // DOWNLOAD
+        case DOWNLOAD: // DOWNLOAD
         {
-            // Assume you have already opened the file and obtained its file descriptor (file_fd).
             printf("Enter case\n");
-            printf("client message: %s\n", client_message);
-            // int poz = 0;
-            // char * op2 = (char*)malloc(4);
-            // op2 = semicol_strtok(client_message, &poz);
-            // int op = atoi(op2);
-            // printf("Code: %x\n", op);
-
-            // char *bytes= (char*)malloc(10);
-            // bytes = semicol_strtok(client_message, &poz);
-            // int path_bytes = atoi(bytes);
-
-            // char *filepath = (char*) malloc(sizeof(char) * (strlen(client_message) - poz + 1));
+            //printf("client message: %s\n", client_message);
             
-            // int i=0;
-            // while(poz < strlen(client_message))
-            // {
-            //     filepath[i++] = client_message[poz];
-            //     poz++;
-            // }
-            // filepath[i] = NULL;
-
-            int op= -1;
-            int path_bytes = -1;
-            char filepath[MAX_PATH_LENGTH] = "";
-
-            // Parse the string
-            int fields_parsed = sscanf(client_message, "%x; %d; %[^\n]", &op, &path_bytes, filepath);
-
-            // Check if all fields were successfully parsed
-            if (fields_parsed != 3) {
-                printf("Error parsing the string.\n");
-                // Handle error or set default values
+            uint32_t length;
+            if(recv(client_desc, &length, sizeof(length), 0) < 0) {
+                perror("Error while receiving server's message.\n");
+                return -1;
             }
 
-            // sscanf(client_message, "%x; %d; %s", op, path_bytes, filepath);
+            char *client_message = (char*) malloc (sizeof(char)*length);
+            
+            if(recv(client_desc, client_message, length, 0) < 0) {
+                perror("Error while receiving server's message.\n");
+                return -1;
+            }
 
             printf("Mesaj: %s\n", client_message);
-            printf("Code: %x\n", op);
-            printf("Nr bytes: %d\n", path_bytes);
-            printf("Filepath: %s\n", filepath);
 
-            if(searchForFile(filepath) == -1)
+            printf("avem fisier sau nu: %d\n", searchForFile(client_message));
+
+            if(searchForFile(client_message) == -1)
             {
                 printf("File not found 0x%x: ", FILE_NOT_FOUND);
+                uint32_t status = FILE_NOT_FOUND;
+                send(client_desc, &status, sizeof(status), 0);
+                break;
             }
             else{
+                uint32_t status = SUCCESS;
+                send(client_desc, &status, sizeof(status), 0);
                 printf("searching for file\n");
 
-                int file_fd = open(filepath, O_RDONLY);
+                int file_fd = open(client_message, O_RDONLY);
                 // Sending status (0x0 for success).
-                struct stat file_stat;
-                if (fstat(file_fd, &file_stat) == -1) {
-                    perror("Error getting file information");
-                    close(file_fd);
-                    // Handle the error
-                    return;
-                }
+                // struct stat file_stat;
+                // if (fstat(file_fd, &file_stat) == -1) {
+                //     perror("Error getting file information");
+                //     close(file_fd);
+                //     // Handle the error
+                //     return;
+                // }
 
                 // Sending status (0x0 for success).
-                uint32_t status = htonl(0x0);
+                status = htonl(0x0);
                 sprintf(server_message, "%x;", status);
 
-                // Sending the number of response bytes.
-                uint32_t response_bytes = htonl(file_stat.st_size);
-                sprintf(server_message + strlen(server_message), " %u;", response_bytes);
-
-                printf("Reached here\n");
-
-                // Sending file content using sendfile.
-                off_t offset = 0;
-                ssize_t sent_bytes = sendfile(client_desc, file_fd, &offset, file_stat.st_size);
-                if (sent_bytes == -1) {
-                    perror("Error sending file content");
-                    close(file_fd);
-                    // Handle the error
-                    return;
+                unsigned long long file_size;
+                struct stat file_status;
+                if (fstat(file_fd, &file_status) < 0)
+                {
+                    perror("Error on getting the file descriptors.\n");
                 }
+                file_size = file_status.st_size;
+                send(client_desc, &file_size, sizeof(file_size), 0);
+
+                printf("size: %d\n", file_size);
+
+                off_t offset = 0;
+                ssize_t sent = sendfile(client_desc, file_fd, &offset, file_size);
+                if (sent < 0)
+                {
+                    perror("Failed to send file");
+                }
+
+
+                // // Sending the number of response bytes.
+                // uint32_t response_bytes = htonl(file_stat.st_size);
+                // sprintf(server_message + strlen(server_message), " %u;", response_bytes);
+
+                // printf("Reached here\n");
+
+                // // Sending file content using sendfile.
+                // off_t offset = 0;
+
+                // printf("Size: %d", file_stat.st_size);
+
+                // // Sending the number of response bytes.
+                // uint32_t response_bytes = htonl(file_stat.st_size);
+                // send(client_desc, &response_bytes, sizeof(response_bytes), 0);
+
+                // ssize_t sent_bytes = sendfile(client_desc, file_fd, &offset, response_bytes);
+                // if (sent_bytes == -1) {
+                //     perror("Error sending file content");
+                //     close(file_fd);
+                //     // Handle the error
+                //     return;
+                // }
 
                 // Close the file descriptor.
                 close(file_fd);
+                free(server_message);
             }
         }
             break;
 
-        case 0x2: // UPLOAD
+        case UPLOAD: // UPLOAD
             {
-            // Implement your logic for UPLOAD operation
-            // ...
-            printf("Sau e aici\n");
-            snprintf(server_message, sizeof(server_message), "UPLOAD operation result");
+            // reverse download
+            printf("in upload\n");
+            uint32_t length;
+            if(recv(client_desc, &length, sizeof(length), 0) < 0) {
+                perror("Unable to send message.\n");
+                return -1;
+            }
+
+            char* path = malloc(length);
+            if(recv(client_desc, path, length, 0) < 0) {
+                perror("Unable to send message.\n");
+                return -1;
+            }
+            path[length] = '\0'; 
+            replace_DIR(path);
+            printf("Replaced path: %s\n", path);
+
+            // Check if the path contains directories and create them
+            createDirectories(path);
+
+            unsigned long long file_size;
+            recv(client_desc, &file_size, sizeof(file_size), 0);
+            char buffer[MAX_CONTENT_LENGTH];
+            FILE *file = fopen(path, "w");
+            if (file == NULL)
+            {
+                perror("Error opening file");
+                exit(1);
+            }
+            while (file_size > 0) {
+        memset(buffer, 0, MAX_CONTENT_LENGTH);
+        ssize_t bytes = 0;
+        if (file_size < MAX_CONTENT_LENGTH) {
+            bytes = recv(client_desc, buffer, file_size, 0);
+        } else {
+            bytes = recv(client_desc, buffer, MAX_CONTENT_LENGTH, 0);
+        }
+
+        if (bytes < 0) {
+            uint32_t status_code = OTHER_ERROR;
+            fclose(file);
+            send(client_desc, &status_code, sizeof(status_code), 0);
+            break;
+        }
+        fwrite(buffer, 1, bytes, file);
+        file_size = file_size - bytes;
+    }
+    fclose(file);
+            addFile(path);
+            checkFiles();
+
+            uint32_t status_code = SUCCESS;
+            send(client_desc, &status_code, sizeof(status_code), 0);
             }
             break;
 
-        case 0x4: //DELETE
+        case DELETE: //DELETE
             {
-            printf("Aici 1\n");
-            int op2 = -1;
-            int path_bytes2 = -1;
-            char filepath2[MAX_PATH_LENGTH] = "";
-            
-            // Parse the string
-            int fields_parsed2 = sscanf(client_message, "%x; %d; %[^\n]", &op2, &path_bytes2, filepath2);
-            printf("Aici 1\n");
-            if (fields_parsed2 != 3) {
-                printf("Error parsing the string.\n");
-                // Handle error or set default values
-            }
-
-            if(searchForFile(filepath2) > -1)
-            {
-                printf("File found\n");
-                if (deleteFile(filepath2) == 0) {
-                    snprintf(server_message, sizeof(server_message), "%x", SUCCESS);
-                } else {
-                    snprintf(server_message, sizeof(server_message), "%x", OTHER_ERROR);
+                printf("caz DELETE\n");
+                uint32_t pathlength;
+                if(recv(client_desc, &pathlength, sizeof(pathlength), 0) < 0)
+                {
+                    perror("Error reciving client's message\n");
+                    return -1;
                 }
-            }
-            else {
-                snprintf(server_message, sizeof(server_message), "%x", OTHER_ERROR);
-            }
-            int serverLength = strlen(server_message);
-            send(client_desc, server_message, serverLength, 0);
-            }
-            break;
-        // Add cases for other operations
+                //got path length
+                char *client_message = (char*) malloc(pathlength);
 
-        case 8:
+                if(recv(client_desc, client_message, pathlength, 0) < 0){
+                    perror("Error reciving clien't message\n");
+                    return -1;
+                }
+
+                printf("Length: %d\n", pathlength);
+                printf("Path: %s\n", client_message);
+
+                uint32_t op_status;
+                if(searchForFile(client_message) > -1)
+                {
+                    printf("File found\n");
+                    if (deleteFile(client_message) == 0) {
+                        op_status = SUCCESS;
+                    } else {
+                        op_status = OTHER_ERROR;
+                    }
+                }
+                else {
+                    op_status = OTHER_ERROR;
+                }
+                send(client_desc, &op_status, sizeof(op_status), 0);
+
+                printf("status sent\n");
+                }
+                break;
+        case MOVE:
         {
-            printf("Am primit ceva");
-
-            int i = 0;
-            while(client_message[i] != ';')
+            printf("CASE MOVE\n");
+            //get files lengths and paths
+            uint32_t src_len;
+            if(recv(client_desc, &src_len, sizeof(src_len), 0) < 0)
             {
-                i++;
+                perror("Error getting the source file length\n");
+                return -1;
             }
-            i++; //am trecut de cod operatie => nr bytes srcpath
-
-            char len[10] ="";
-            int j = 0;
-            while(client_message[i] != ';')
-            {
-                len[j] = client_message[i];
-                j++;
-                i++;
-            }
-            i++;
-
-            uint32_t len_src;
-            sprintf(len_src, "%x", len);
-            char *src_filepath = (char*) malloc(len_src);
             
-            j = 0;
-            while(client_message[i] != '\0')
+            char *src_path = malloc(src_len + 1);
+            if(recv(client_desc, src_path, src_len, 0) < 0)
             {
-                src_filepath[j] = client_message[i];
-                j++;
-                i++;
+                perror("Error getting the source file length\n");
+                return -1;
             }
-            i++;
-            src_filepath[j] = '\0';
-
-            strcpy(len[10], "");
-            j = 0;
-            while(client_message[i] != ';')
+            src_path[src_len] = '\0';
+            printf("Source length: %d\n", src_len);
+            printf("Source file: %s\n", src_path);
+            
+            uint32_t dest_len;
+            if(recv(client_desc, &dest_len, sizeof(dest_len), 0) < 0)
             {
-                len[j] = client_message[i];
-                i++;
-                j++;
+                perror("Error getting the source file length\n");
+                return -1;
             }
-            i++;
-
-
-            uint32_t len_dest;
-            sprintf(len_dest, "%x", len);
-            char *dest_filepath = (char*) malloc(len_src);
-            j = 0;
-            while(client_message[i] != '\0')
+            
+            char *dest_path = malloc(dest_len + 1);
+            if(recv(client_desc, dest_path, dest_len, 0) < 0)
             {
-                dest_filepath[j] = client_message[i];
-                j++;
-                i++;
+                perror("Error getting the source file length\n");
+                return -1;
             }
-            dest_filepath[j] = '\0';
+            dest_path[dest_len] = '\0';
+            
+            //got the files but gotta check them
+            printf("Destination length: %d\n", dest_len);
+            printf("Destination file: %s\n", dest_path);
 
-            printf("Src Nr bytes: %x\n", len_src);
-            printf("Src Filepath: %s\n", src_filepath);
-            printf("Dest Nr bytes: %x\n", len_dest);
-            printf("Dest Filepath: %s\n", dest_filepath);
+            if(searchForFile(src_path) == -1 || searchForFile(dest_path) != -1)
+            {
+                uint32_t status = BAD_ARGUMENTS;
+                send(client_desc, &status, sizeof(status), 0);
+            }
+            else{
+                printf("aici dupa search\n");
+                createDirectories(dest_path);
+                int src_fd = open(src_path, O_RDONLY);
+                int dest_fd = open(dest_path, O_RDWR | O_CREAT, 0666);
 
-            //moving file using sendfile
-            // int src_fd = open(src_filepath, O_RDONLY);
-            // if (src_fd == -1) {
-            //     perror("Error opening source file");
-            //     snprintf(server_message, sizeof(server_message), "%x", OTHER_ERROR);
-            //     break;
-            // }
+                unsigned long long file_size;
+                struct stat file_status;
+                if (fstat(src_fd, &file_status) < 0)
+                {
+                    perror("Error on getting the file descriptors.\n");
+                }
+                file_size = file_status.st_size;
 
-            // int dest_fd = open(dest_filepath, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-            // if (dest_fd == -1) {
-            //     perror("Error opening destination file");
-            //     close(src_fd);
-            //     snprintf(server_message, sizeof(server_message), "%x", OTHER_ERROR);
-            //     break;
-            // }
+                sendfile(dest_fd, src_fd, 0, file_size);
 
-            // off_t offset = 0;
-            // struct stat src_stat;
-            // if (fstat(src_fd, &src_stat) == -1) {
-            //     perror("Error getting source file information");
-            //     close(src_fd);
-            //     close(dest_fd);
-            //     snprintf(server_message, sizeof(server_message), "%x", OTHER_ERROR);
-            //     break;
-            // }
-
-            // // Sending status (0x0 for success).
-            // uint32_t status = htonl(0x0);
-            // sprintf(server_message, "%x;", status);
-
-            // // Sending the number of response bytes.
-            // uint32_t response_bytes = htonl(src_stat.st_size);
-            // sprintf(server_message + strlen(server_message), " %u;", response_bytes);
-
-            // // Sending file content using sendfile.
-            // ssize_t sent_bytes = sendfile(dest_fd, src_fd, &offset, src_stat.st_size);
-            // if (sent_bytes == -1) {
-            //     perror("Error moving file content");
-            //     close(src_fd);
-            //     close(dest_fd);
-            //     snprintf(server_message, sizeof(server_message), "%x", OTHER_ERROR);
-            //     break;
-            // }
-
-            // // Close file descriptors.
-            // close(src_fd);
-            // close(dest_fd);
-
-            // free(src_filepath);
-            // free(dest_filepath);
-
-            // int serverLength2 = strlen(server_message);
-            // send(client_desc, server_message, serverLength2, 0);
+                close(dest_fd);
+                close(src_fd);
+                deleteFile(src_path);
+                addFile(dest_path);
+                uint32_t status = SUCCESS;
+                send(client_desc, &status, sizeof(status), 0);
+            }
         }
-            break;
+        break;
 
         default:
             printf("A intrat aici\n");
             // Handle unknown operation
             snprintf(server_message, sizeof(server_message), "%x", UNKNOWN_OPERATION);
             break;
+
+        printf("out of case\n");
     }
     
 }
 
 void *handle_client(void *socket_descriptor) {
+    printf("in handle_client \n");
     int client_desc = *((int *)socket_descriptor);
-    char client_message[2000];
-    memset(client_message, '\0', sizeof(client_message));
+    uint32_t byteSize = 0;
 
     //getting connections
     while (1) {
         // Wait for client message
-        ssize_t bytes_received = recv(client_desc, client_message, sizeof(client_message), 0);
-
-        if (bytes_received < 0) {
-            perror("Couldn't receive.\n");
-            break;
-        }
-
-        if (bytes_received == 0) {
-            // Connection closed by the client
-            printf("Client disconnected.\n");
-            break;
-        }
-
+        
         uint32_t operation;
-        sscanf(client_message, "%x", &operation);
 
-        printf("Client message: %s\n", client_message);
-        printf("Operatie: %x\n", operation);
+        if(recv(client_desc, &operation, sizeof(operation), 0) < 0) {
+            perror("Error while receiving server's message.\n");
+            return -1;
+        }
+
+        printf("Operatie: %u\n", operation);
         //locking connection so it doesn't receive messages while sending out => noise reduction
         pthread_mutex_lock(&mutex);
 
-        handle_instruction(client_desc, operation, client_message);
+        handle_instruction(client_desc, operation);//, client_message);
 
         //unlocking for further connections;
         pthread_mutex_unlock(&mutex);
-        memset(client_message, '\0', sizeof(client_message));
+        //memset(client_message, '\0', sizeof(client_message));
     }
 
     close(client_desc);
@@ -794,7 +836,7 @@ int main(int argc, char **argv) {
     addAllFiles();
 
     while (1) {
-        printf("Entered while\n");
+        //printf("Entered while\n");
         struct epoll_event events[CLIENTS];
         int num_events = epoll_wait(epoll_fd, events, CLIENTS, -1);
 
@@ -842,3 +884,4 @@ int main(int argc, char **argv) {
 
     return 0;
 }
+

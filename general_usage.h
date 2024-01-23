@@ -12,7 +12,7 @@
 #include <sys/stat.h>
 #include <dirent.h>
 
-#define SERVER_PORT 90002
+#define SERVER_PORT 90005
 #define SERVER_IP "192.168.1.136"
 #define CLIENTS 10
 
