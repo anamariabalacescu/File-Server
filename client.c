@@ -11,8 +11,8 @@ int file_number = 0;
 
 void initializeFiles()
 {
-    files = (file_data*) malloc(sizeof(file_data) * 10);
-    for(int i = 0; i < 10; i++)
+    files = (file_data*) malloc(sizeof(file_data) * 20);
+    for(int i = 0; i < 20; i++)
     {
         files[i].name = NULL;
         files[i].hasContent = 0;
@@ -90,6 +90,10 @@ void listFilesRecursively(char *basePath, file_data *files, int *index) {
         }
         closedir(dir);
     }
+}
+int isFile(const char *path) {
+    const char *dot = strrchr(path, '.'); 
+    return (dot != NULL && dot[1] != '\0');
 }
 
 void addAllFiles() {
@@ -234,18 +238,52 @@ void replace_DIR(char *filepath)
     }
 }
 
-void createDirectories(char *filepath) {
-    char *sep = strrchr(filepath, '/');
-    if (sep != NULL) {
-        *sep = '\0'; // temporarily truncate the path
-        if (mkdir(filepath, 0777) == -1 && errno != EEXIST) {
-            perror("Error creating directories");
+void createDirectories(const char *filePath) {
+    char *pathCopy = strdup(filePath);  // Make a copy to avoid modifying the original string
+    char *token = strtok(pathCopy, "/");
+
+    char currentPath[1024] = "";  // Assuming a reasonable buffer size
+
+    strcat(currentPath, "./"); 
+    while (token != NULL) {
+        if(isFile(token))
+            break;
+
+        strcat(currentPath, token);
+
+        mkdir(currentPath, 0777);
+
+        strcat(currentPath, "/");
+        token = strtok(NULL, "/");
+    }
+
+    free(pathCopy);
+}
+void* myRealloc(void* ptr, size_t size) {
+    if (ptr == NULL) {
+        // If ptr is NULL, it's equivalent to malloc
+        return malloc(size);
+    } else {
+        // Allocate a new block of memory
+        void* newPtr = malloc(size);
+        if (newPtr == NULL) {
+            // Handle allocation failure
+            perror("malloc");
             exit(EXIT_FAILURE);
         }
-        *sep = '/'; // restore the path
-        chmod(filepath, 0777);
+
+        // Copy data from the old block to the new block
+        size_t oldSize = sizeof(ptr);  // requires glibc extension
+        if (size < oldSize) {
+            oldSize = size;
+        }
+        memcpy(newPtr, ptr, oldSize);
+
+        // Free the old block
+        free(ptr);
+
+        return newPtr;
     }
-    free(sep);
 }
 
 
@@ -330,7 +368,8 @@ void handle_option(int socket_descriptor)
         {
             char path[MAX_PATH_LENGTH];
             printf("Select filepath to download: ");
-            scanf("%s", &path);
+            scanf("%s", path);
+            printf("Message to send %s and length %d\n", path, strlen(path));
             uint32_t length = strlen(path);
             if(send(socket_descriptor, &length, sizeof(length), 0) < 0) {
                 perror("Unable to send message.\n");
@@ -389,52 +428,6 @@ void handle_option(int socket_descriptor)
             fclose(file);
             addFile(path);
             checkFiles();
-            // printf("Directories/Files created\n");
-            
-            // // Open the file in write and create mode --needs to be created if it doesn't exist(probably doesn't)
-            // int fd = open(path, O_RDWR | O_CREAT | O_TRUNC, 0666);
-            // if (fd == -1) {
-            //     perror("Error opening/creating file");
-            //     exit(EXIT_FAILURE);
-            // }
-
-            // printf("File opened for writting\n");
-
-            // int dim = 0;
-            // recv(socket_descriptor, &dim, sizeof(dim), 0);
-            // // Receive and write file content
-            // char *buffer = malloc(dim);
-            // memset(buffer, 0, dim); // Initialize the buffer with zeros
-
-            // ssize_t total_received_bytes = 0;
-            // ssize_t received_bytes;
-
-            // while (total_received_bytes < dim) {
-            //     received_bytes = recv(socket_descriptor, buffer + total_received_bytes, dim - total_received_bytes, 0);
-
-            //     if (received_bytes <= 0) {
-            //         perror("Error receiving file content");
-            //         break;
-            //     }
-
-            //     total_received_bytes += received_bytes;
-            // }
-
-            // printf("received all\n");
-            // for(int i =0 ; i < total_received_bytes; i++)
-            //     printf("%c", buffer[i]);
-
-            // // if (total_received_bytes == dim) {
-            // if(write(fd, buffer, total_received_bytes) == -1)
-            // {
-            //     perror("Incomplete file content\n");
-            // }
-            // // } else {
-            // //     perror("Incomplete file content received");
-            // // }
-
-            // // Close the file
-            // close(fd);
 
             printf("File downloaded successfully.\n");
         }
@@ -519,6 +512,7 @@ void handle_option(int socket_descriptor)
             scanf("%s", &path);
             printf("Path: %s", path);
             uint32_t length = strlen(path);
+            path[length] = '\0';
             printf("Length: %u", length);
             if(send(socket_descriptor, &length, sizeof(length), 0) < 0) {
                 perror("Unable to send message.\n");
@@ -587,7 +581,117 @@ void handle_option(int socket_descriptor)
             printf("Status: %u\n", status_code);
         }    
             break;
-        case 0x10:
+        case 10:
+        // cod_operație; nr. octeți cale fișier; calea fișierului; octet start; dimensiune; caracterele noi
+        {
+            printf("UPDATE CASE\n");
+            printf("Select file to update: ");
+
+            char path[MAX_PATH_LENGTH];
+            uint32_t path_len = 0;
+
+            scanf("%s", path);
+            path_len = strlen(path);
+
+            path[path_len] = '\0';
+            send(socket_descriptor, &path_len, sizeof(path_len), 0);
+            send(socket_descriptor, path, path_len, 0);
+
+            uint32_t st_byte;
+            printf("Select byte: ");
+            scanf("%d", &st_byte);
+
+            send(socket_descriptor, &st_byte, sizeof(st_byte), 0);
+
+            char content[MAX_CONTENT_LENGTH];
+            scanf("%s", content);
+            
+            uint32_t cont_len = strlen(content);
+            content[cont_len] = '\0';
+            
+            send(socket_descriptor, &cont_len, sizeof(cont_len), 0);
+            send(socket_descriptor, content, cont_len, 0);
+
+
+            // char path[MAX_PATH_LENGTH];
+            
+            // scanf("%s", path);
+            // path[strlen(path)] = '\0';
+            // uint32_t len = strlen(path);
+            
+            // send(socket_descriptor, &len, sizeof(len), 0);
+            // send(socket_descriptor, path, len, 0);
+
+            // uint32_t start_byte;
+            // printf("Select start byte: ");
+            // if (scanf("%u", &start_byte) != 1) {
+            //     printf("Error: Failed to read uint32_t.\n");
+            //     return 1;
+            // }
+            // printf("\nEnter the new sequence to insert:");
+
+            // send(socket_descriptor, &start_byte, sizeof(start_byte), 0);
+            // int size = 10;
+            // char new_sequence[MAX_CONTENT_LENGTH];
+            // uint32_t buffer_size = 0;
+            
+            // scanf("%s", new_sequence);
+            // buffer_size = strlen(new_sequence);
+            // send(socket_descriptor, &buffer_size, sizeof(buffer_size), 0);
+            // send(socket_descriptor, new_sequence, buffer_size, 0);
+            
+            // int ok = 0;
+            // while(ok == 0)
+            // {
+            //     scanf("%s", new_sequence);
+            //     printf("secventa = %s\n", new_sequence);
+            //     buffer_size = strlen(new_sequence);
+            //     if(buffer_size < MAX_CONTENT_LENGTH)
+            //         ok = 1;
+            //     send(socket_descriptor, &buffer_size, sizeof(buffer_size), 0);
+            //     send(socket_descriptor, new_sequence, buffer_size, 0);
+            // }
+
+            // char ch;
+            // int i;
+            // char c = getchar();
+            // printf("%c \n",c);
+            
+            // for(i=0;(ch=getchar()) !='\n' && ch != EOF;++i){
+            //     if( i == size){
+            //         size = 2*size;
+            //         new_sequence = myRealloc(new_sequence, size*sizeof(char));
+            //         if(new_sequence == NULL){
+            //             printf("Error Unable to Grow String! :(");
+            //             exit(-1);
+            //         }
+            //     } 
+            //     new_sequence[i] = ch;
+            // }
+
+            // if(i == size){
+            //     new_sequence = myRealloc(new_sequence, (size+1)*sizeof(char));
+            //     if(new_sequence == NULL){
+            //         printf("Error Unable to Grow String! :(");
+            //         exit(-1);
+            //     }
+
+            // }
+            // new_sequence[i] = '\0';
+            // buffer_size = strlen(new_sequence);
+            // printf("%s\n", new_sequence);
+
+            // send(socket_descriptor, &buffer_size, sizeof(buffer_size), 0);
+            // send(socket_descriptor, new_sequence, strlen(new_sequence), 0);
+
+            if(recv(socket_descriptor, &status_code, sizeof(status_code), 0) < 0)
+            {
+                perror("Error receiving status.\n");
+                return -1;
+            }
+            printf("Status: %u\n", status_code);
+            // free(new_sequence);
+        }
             break;
         case 0x20:
             break;
