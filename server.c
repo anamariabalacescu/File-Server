@@ -128,7 +128,6 @@ void addFileWordOccurrence(const char * filename, char* word)
     char path1[500] = "./ServerRam";
     strcat(path1, filename+1);
     int numberOfWords = 0;
-    printf("path = %s\n", path1, word, numberOfWords);
     struct word_data* vector = readAllWordsFromFile(path1, &numberOfWords,-1);
     addNewWordToVector(vector, &numberOfWords, word);
     sortWordDataVectorByNumberOfOccurences(vector, numberOfWords);
@@ -166,7 +165,6 @@ void handle_signal()
 
     // Create a signalfd
     int signal_fd = signalfd(-1, &mask, 0);
-    printf("signal_fd = %d\n", signal_fd);
     if (signal_fd == -1) {
         perror("signalfd");
         close(epoll_fd1);
@@ -374,17 +372,12 @@ void addAllFiles() {
 
 int searchForFile(char *filename)
 {
-    //printf("search\n");
     if(file_number < 0)
         return -1; //no files
-    
-    //printf("%s1\n", filename);
 
     int i = 0;
     for(int i = 0; i < file_number; i++)
     {
-        //printf("search %d\n", i);
-        //printf("%d", i);
         if(strstr(files[i].name, filename)!=NULL)
             return i;
     }
@@ -409,10 +402,7 @@ char* my_strcat(char* destination, const char* source) {
         destination++;
         source++;
     }
-    printf("Desti After%s\n", destination);
-    // Add null terminator to the concatenated string
     *destination = '\0';
-    printf("Desti AAAA%s\n", destination);
     return result;
 }
 
@@ -548,7 +538,6 @@ int insertDataIntoFile(const char *filename, const char *newData, size_t inserti
 
     // Close the file
     fclose(file);
-    printf("aici5 %s and %s and %d\n", fileContent, newData, insertionIndex);
     // Insert new data at the specified index in the content
     char* newFileContent= insertStringAtIndex(fileContent, fileSize, newData, insertionIndex);
     if(!newFileContent) return -1;
@@ -559,10 +548,8 @@ int insertDataIntoFile(const char *filename, const char *newData, size_t inserti
         free(fileContent);
         return -1;
     }
-    printf("aici7 %s\n", newFileContent);
     // Write the modified content back to the file
     fwrite(newFileContent, 1, strlen(newFileContent), file);
-    printf("aici8\n");
     // Close the file
     fclose(file);
 
@@ -571,23 +558,11 @@ int insertDataIntoFile(const char *filename, const char *newData, size_t inserti
 int searchWordInFile(char *filename, char *word) {
     FILE *file = fopen(filename, "r");
 
-    //printf("in file: %s", filename);
     
     if (file == NULL) {
         perror("Error opening file");
         return 0;
     }
-
-    // printf("\nbefore top 10\n");
-    // if(inTop10(filename, word) > 0)
-    //     return 1;
-
-    // printf("after top 10\n");
-
-    // if(inBigList(filename, word)> 0)
-    //     return 1;
-
-    // printf("\nafter functions for top10 and big\n");
 
     char buffer[1024];
 
@@ -615,10 +590,8 @@ char* checkWordInFiles(char *word, uint32_t *totalLen)
     int len = 0;
     for(int i = 0; i < file_number; i++)
     {
-        //printf("%d)", i);
         if(searchWordInFile(files[i].name, word) == 1)
         {
-            //printf("\t\t found\n");
             
             size_t filenameLen = strlen(files[i].name);
             char *filename = malloc(filenameLen + 1);
@@ -626,18 +599,14 @@ char* checkWordInFiles(char *word, uint32_t *totalLen)
             memcpy(filename, files[i].name, filenameLen);
             filename[filenameLen] = '\0';
 
-            //printf("(%d) Found in file: %s\n", i, filename);
-
             list = realloc(list, len + filenameLen + 1);
             memcpy(list + len, filename, strlen(filename) + 1);
-            // Update the length of the list
             len += filenameLen + 1;
 
             history(op, filename, word);
             free(filename);
         }
 
-        //printf("\n");
     }
     *totalLen = len;
     return list;
@@ -689,8 +658,6 @@ void handle_instruction(int client_desc, uint32_t operation) {
 
         case DOWNLOAD: // DOWNLOAD
         {
-            printf("Enter case\n");
-            
             uint32_t length;
             if(recv(client_desc, &length, sizeof(length), 0) < 0) {
                 perror("Error while receiving server's message.\n");
@@ -704,9 +671,7 @@ void handle_instruction(int client_desc, uint32_t operation) {
                 return -1;
             }
 
-            printf("Mesaj: %s and length %d \n", client_message, length);
-
-            printf("avem fisier sau nu: %d\n", searchForFile(client_message));
+            pthread_mutex_lock(&mutex);
 
             if(searchForFile(client_message) == -1)
             {
@@ -747,6 +712,7 @@ void handle_instruction(int client_desc, uint32_t operation) {
                 close(file_fd);
                 free(server_message);
             }
+            pthread_mutex_unlock(&mutex);
             free(client_message); //added now 16:17;
         }
             break;
@@ -754,7 +720,6 @@ void handle_instruction(int client_desc, uint32_t operation) {
         case UPLOAD: // UPLOAD
             {
             // reverse download
-            printf("in upload\n");
             uint32_t length;
             if(recv(client_desc, &length, sizeof(length), 0) < 0) {
                 perror("Unable to send message.\n");
@@ -766,19 +731,20 @@ void handle_instruction(int client_desc, uint32_t operation) {
                 perror("Unable to send message.\n");
                 return -1;
             }
+            pthread_mutex_lock(&mutex);
             path[length] = '\0'; 
             replace_DIR(path);
-            printf("Replaced path: %s\n", path);
 
             // Check if the path contains directories and create them
             createDirectories(path);
 
             unsigned long long file_size;
+            pthread_mutex_unlock(&mutex);
             if(recv(client_desc, &file_size, sizeof(file_size), 0) <0) {
                 perror("Error while receiving server's message.\n");
                 return -1;
             }
-            printf("File size: %d\n", file_size);
+            pthread_mutex_lock(&mutex);
             char buffer[MAX_CONTENT_LENGTH];
             FILE *file = fopen(path, "w");
             if (file == NULL)
@@ -786,6 +752,10 @@ void handle_instruction(int client_desc, uint32_t operation) {
                 perror("Error opening file");
                 exit(1);
             }
+
+            // unlock mutex
+            pthread_mutex_unlock(&mutex);
+
             while (file_size > 0) {
                 memset(buffer, 0, MAX_CONTENT_LENGTH);
                 ssize_t bytes = 0;
@@ -794,18 +764,19 @@ void handle_instruction(int client_desc, uint32_t operation) {
                 } else {
                     bytes = recv(client_desc, buffer, MAX_CONTENT_LENGTH, 0);
                 }
-
+                pthread_mutex_lock(&mutex);
                 if (bytes < 0) {
                     uint32_t status_code = OTHER_ERROR;
                     fclose(file);
                     send(client_desc, &status_code, sizeof(status_code), 0);
                     break;
                 }
-                printf("File size: %d, buffer: %s, bytes: %d\n", file_size, buffer, bytes);
             
                 fwrite(buffer, 1, bytes, file);
                 file_size = file_size - bytes;
+                pthread_mutex_unlock(&mutex);
             }
+            pthread_mutex_lock(&mutex);
             fclose(file);
             addFile(path);
             checkFiles();
@@ -813,13 +784,14 @@ void handle_instruction(int client_desc, uint32_t operation) {
             uint32_t status_code = SUCCESS;
             send(client_desc, &status_code, sizeof(status_code), 0);
             history(operation, path, NULL);
+
             free(path); //added now
+            pthread_mutex_unlock(&mutex);
             }
             break;
 
         case DELETE: //DELETE
             {
-                printf("caz DELETE\n");
                 uint32_t pathlength;
                 if(recv(client_desc, &pathlength, sizeof(pathlength), 0) < 0)
                 {
@@ -835,13 +807,10 @@ void handle_instruction(int client_desc, uint32_t operation) {
                 }
                 client_message[pathlength] = '\0';
 
-                printf("Length: %d\n", pathlength);
-                printf("Path: %s\n", client_message);
-
+                pthread_mutex_lock(&mutex);
                 uint32_t op_status;
                 if(searchForFile(client_message) > -1)
                 {
-                    printf("File found\n");
                     if (deleteFile(client_message) == 0) {
                         op_status = SUCCESS;
                     } else {
@@ -853,13 +822,12 @@ void handle_instruction(int client_desc, uint32_t operation) {
                 }
                 send(client_desc, &op_status, sizeof(op_status), 0);
 
-                printf("status sent\n");
                 free(client_message); //added now
+                pthread_mutex_unlock(&mutex);
                 }
                 break;
         case MOVE:
         {
-            printf("CASE MOVE\n");
             //get files lengths and paths
             uint32_t src_len;
             if(recv(client_desc, &src_len, sizeof(src_len), 0) < 0)
@@ -875,8 +843,6 @@ void handle_instruction(int client_desc, uint32_t operation) {
                 return -1;
             }
             src_path[src_len] = '\0';
-            printf("Source length: %d\n", src_len);
-            printf("Source file: %s\n", src_path);
             
             uint32_t dest_len;
             if(recv(client_desc, &dest_len, sizeof(dest_len), 0) < 0)
@@ -894,16 +860,13 @@ void handle_instruction(int client_desc, uint32_t operation) {
             dest_path[dest_len] = '\0status_code';
             
             //got the files but gotta check them
-            printf("Destination length: %d\n", dest_len);
-            printf("Destination file: %s\n", dest_path);
-
+            pthread_mutex_lock(&mutex);
             if(searchForFile(src_path) == -1 || searchForFile(dest_path) != -1)
             {
                 uint32_t status = BAD_ARGUMENTS;
                 send(client_desc, &status, sizeof(status), 0);
             }
             else{
-                printf("aici dupa search\n");
                 createDirectories(dest_path);
                 int src_fd = open(src_path, O_RDONLY);
                 int dest_fd = open(dest_path, O_RDWR | O_CREAT, 0666);
@@ -928,27 +891,20 @@ void handle_instruction(int client_desc, uint32_t operation) {
             }
             free(src_path); //added now
             free(dest_path); //added now
+            pthread_mutex_unlock(&mutex);
         }
         break;
         case 10:
         {
-            printf("UPDATE CASE\n");
-
             uint32_t len = 0;
             recv(client_desc, &len, sizeof(len), 0);
-            printf("len path= %d\n", len);
-
             char* path = malloc(len + 1);
 
             recv(client_desc, path, len, 0);
             path[len] = '\0';
 
-            printf("path = %s\n", path);
-
-
             uint32_t st_byte = 0;
             recv(client_desc, &st_byte, sizeof(st_byte), 0);
-            printf("Byte = %d\n", st_byte);
 
 
             uint32_t cont_len = 0;
@@ -959,8 +915,7 @@ void handle_instruction(int client_desc, uint32_t operation) {
             char *content = malloc(cont_len + 1);
             recv(client_desc, content, cont_len, 0);
             content[cont_len] = '\0'; 
-            //printf("content = %s\n", content);
-
+            pthread_mutex_lock(&mutex);
             if(insertDataIntoFile(path, content, st_byte) == -1) {
                 uint32_t status_code = OTHER_ERROR;
                 send(client_desc, &status_code, sizeof(status_code), 0);
@@ -969,37 +924,30 @@ void handle_instruction(int client_desc, uint32_t operation) {
                 free(content); //added now
                 break;
             }
-            //printf("aici9\n");
             uint32_t status_code = SUCCESS;
             send(client_desc, &status_code, sizeof(status_code), 0);
-            //printf("aici10\n");
             history(operation, path, NULL);
 
             free(path); //added now
             free(content); //added now
+            pthread_mutex_unlock(&mutex);
         }
         break;
         case 20:
         {
-            printf("SEARCH\n");
             uint32_t len = 0;
 
             recv(client_desc, &len, sizeof(len), 0);
-            
-            printf("len = %d\n", len);
             
             char *word = malloc(len + 1);
             
             recv(client_desc, word, len, 0);
             word[len] = '\0';
-            printf("word = %s\n", word);
 
-            printf("Word to search for: %s\n", word);
-
+            pthread_mutex_lock(&mutex);
             uint32_t len_sir = 0;
             char* list = checkWordInFiles(word, &len_sir);
 
-            printf("Len sir = %d\n", len_sir);
             for(int i = 0; i < len_sir; i++)
             {
                 if(list[i]=='\0')
@@ -1022,21 +970,20 @@ void handle_instruction(int client_desc, uint32_t operation) {
                 send(client_desc, list, len_sir, 0);
             }
             free(list);
+            
+            // unlock mutex
+            pthread_mutex_unlock(&mutex);
         }
         break;
         default:
-            printf("A intrat aici\n");
             // Handle unknown operation
             snprintf(server_message, sizeof(server_message), "%x", UNKNOWN_OPERATION);
             break;
-
-        printf("out of case\n");
     }
     
 }
 
 void *handle_client(void *socket_descriptor) {
-    printf("in handle_client \n");
     int client_desc = *((int *)socket_descriptor);
     uint32_t byteSize = 0;
 
@@ -1048,26 +995,15 @@ void *handle_client(void *socket_descriptor) {
             break;
         }
         // Wait for client message
-        printf("Still work before receive.. \n");
-        pthread_mutex_lock(&mutex);
+
         uint32_t operation;
         if(recv(client_desc, &operation, sizeof(operation), 0) < 0) {
             perror("Error while receiving server's message.\n");
             return -1;
         }
-        printf("Still work after.. \n");
-
-
         printf("Operatie: %u\n", operation);
-        //locking connection so it doesn't receive messages while sending out => noise reduction
-        printf("Still work.. \n");
 
-        handle_instruction(client_desc, operation);//, client_message);
-        pthread_mutex_unlock(&mutex);
-        //unlocking for further connections;
-        //pthread_mutex_unlock(&mutex);
-        printf("Still work.. \n");
-        //memset(client_message, '\0', sizeof(client_message));
+        handle_instruction(client_desc, operation);
     }
 
     close(client_desc);
@@ -1188,14 +1124,7 @@ int main(int argc, char **argv) {
                     perror("Couldn't create thread");
                     return -1;
                 }
-
-                // wait for thread to finish
-                if (pthread_join(thrd_id, NULL) < 0) {
-                    perror("Couldn't join thread");
-                    return -1;
-                }
-
-                pthread_detach(thrd_id);
+                //pthread_detach(thrd_id);
             }
         }
     }

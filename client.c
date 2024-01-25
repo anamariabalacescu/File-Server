@@ -145,13 +145,13 @@ int deleteFile(const char *filepath) {
 void client_menu()
 {
     printf("\t\t\tChoose one option\n");
-    printf("-> To LIST all files from the server send: %x\n", LIST);
-    printf("-> To DOWNLOAD a file send: %x; number of bytes of the filepath; filepath\n", DOWNLOAD);
-    printf("-> To UPLOAD a file send: %x; number of bytes of the filepath; filepath; number of bytes of the file's content; file content\n", UPLOAD);
-    printf("-> To DELETE an existing file send: %x; number of bytes of the filepath; filepath\n", DELETE);
-    printf("-> To MOVE an existing file send: %x; number of bytes of the source filepath; source filepath; number of bytes of the destination filepath; destination filepath\n", MOVE);
-    printf("-> To UPDATE an existing file send: %x, number of bytes of the filepath; filepath; start byte; dimension; new characters\n", UPDATE);
-    printf("-> To SEARCH for a word send: %x; bytes for word; word\n", SEARCH);
+    printf("0 -> To LIST all files from the server\n");
+    printf("1 -> To DOWNLOAD a file\n");
+    printf("2 -> To UPLOAD a file\n");
+    printf("4 -> To DELETE an existing file\n");
+    printf("8 -> To MOVE an existing file\n");
+    printf("10 -> To UPDATE an existing file \n");
+    printf("20 -> To SEARCH for a word\n");
     printf("\n\t\t<--- PLEASE RESPECT THE FORMAT --->\n");
 }
 
@@ -311,7 +311,6 @@ void handle_option(int socket_descriptor)
     {
         case 0x0:
             {
-                printf("Treating op_Code...\n");
                 //Send operation
 
                 //Receive status code 
@@ -330,24 +329,13 @@ void handle_option(int socket_descriptor)
                         return -1;
                     }
 
-                    //printf("%u = length\n", serverlength);
                     server_message = (char*)malloc(sizeof(char)*(serverlength));
-                    //printf("%d", strlen(server_message));
+
                     if(recv(socket_descriptor, server_message, serverlength, 0) < 0) {
                         perror("Error while receiving server's message.\n");
                         return -1;
                     }
                     printf("message: %s\n", server_message);
-                    //Parse filenames  
-                    // char **result;
-                    // size_t numFiles;
-                    // parseString(server_message, &result, &numFiles);
-
-                    // // Print the files and free afterwards
-                    // for (size_t i = 0; i < numFiles; i++) {
-                    //     printf("%zu) %s\n", i + 1, result[i]);
-                    //     free(result[i]);
-                    // }
 
                     for(int i = 0; i < serverlength; i++)
                     {
@@ -369,7 +357,6 @@ void handle_option(int socket_descriptor)
             char path[MAX_PATH_LENGTH];
             printf("Select filepath to download: ");
             scanf("%s", path);
-            printf("Message to send %s and length %d\n", path, strlen(path));
             uint32_t length = strlen(path);
             if(send(socket_descriptor, &length, sizeof(length), 0) < 0) {
                 perror("Unable to send message.\n");
@@ -386,10 +373,9 @@ void handle_option(int socket_descriptor)
                 return -1;
             }
 
-            printf("%u\n", status_code);
+            printf("Status code:%u\n", status_code);
 
             replace_DIR(path);
-            printf("Replaced path: %s\n", path);
             
             if (status_code == FILE_NOT_FOUND) {
                 printf("File not found on the server.\n");
@@ -428,15 +414,12 @@ void handle_option(int socket_descriptor)
             fclose(file);
             addFile(path);
             checkFiles();
-
-            printf("File downloaded successfully.\n");
         }
             break;
 
         case 0x2: //upload
         {
             //reverse download basically
-            printf("Enter UPLOAD case\n");
 
             int ok = 0;
             //printf("client message: %s\n", client_message);
@@ -444,10 +427,6 @@ void handle_option(int socket_descriptor)
                 printf("Select the client's file you want to upload: ");
                 char path[MAX_PATH_LENGTH];
                 scanf("%s", path);
-
-                printf("Fisier: %s\n", path);
-
-                printf("avem fisier sau nu: %d\n", searchForFile(path));
 
                 if(searchForFile(path) == -1)
                 {
@@ -466,8 +445,6 @@ void handle_option(int socket_descriptor)
                         return -1;
                     }//send path
 
-                    printf("sending file\n");
-
                     int file_fd = open(path, O_RDONLY);
 
                     unsigned long long file_size;
@@ -478,12 +455,9 @@ void handle_option(int socket_descriptor)
                     }
                     file_size = statfile.st_size;
 
-                    printf("File size: %d\n", file_size);
-                    printf("Path again: %s\n", path);
 
                     send(socket_descriptor, &file_size, sizeof(file_size), 0); //send size of content
 
-                    printf("size: %d\n", file_size);
 
                     off_t offset = 0;
                     ssize_t sent = sendfile(socket_descriptor, file_fd, &offset, file_size); //send content
@@ -506,14 +480,14 @@ void handle_option(int socket_descriptor)
         case 4:
         {
             //delete
-            printf("in delete\n");
+
             char path[MAX_PATH_LENGTH];
             printf("Select filepath to delete: ");
             scanf("%s", &path);
-            printf("Path: %s\n", path);
+
             uint32_t length = strlen(path);
             path[length] = '\0';
-            printf("Length: %u\n", length);
+
             if(send(socket_descriptor, &length, sizeof(length), 0) < 0) {
                 perror("Unable to send message.\n");
                 return -1;
@@ -541,7 +515,6 @@ void handle_option(int socket_descriptor)
             //upload+delete
             int ok = 0;
             
-            printf("MOVE CASE\n");
             printf("Fisier sursa de pe SERVER: ");
             char srcpath[MAX_PATH_LENGTH];
             scanf("%s", srcpath);
@@ -549,16 +522,12 @@ void handle_option(int socket_descriptor)
             char destpath[MAX_PATH_LENGTH];
             scanf("%s", destpath);
 
-            printf("Verify src path: %s\n", srcpath);
-            printf("Verify dest path: %s\n", destpath);
 
             uint32_t src_len = strlen(srcpath);
             srcpath[src_len] = '\0';
             uint32_t dest_len = strlen(destpath);
             destpath[dest_len] = '\0';
-            printf("Len src: %d\n", src_len);
-            printf("Len dest: %d\n", dest_len);
-            
+
             send(socket_descriptor, &src_len, sizeof(src_len), 0);
             if(send(socket_descriptor, &srcpath, src_len, 0) < 0)
             {
@@ -584,7 +553,6 @@ void handle_option(int socket_descriptor)
         case 10:
         // cod_operație; nr. octeți cale fișier; calea fișierului; octet start; dimensiune; caracterele noi
         {
-            printf("UPDATE CASE\n");
             printf("Select file to update: ");
 
             char path[MAX_PATH_LENGTH];
@@ -612,78 +580,6 @@ void handle_option(int socket_descriptor)
             send(socket_descriptor, &cont_len, sizeof(cont_len), 0);
             send(socket_descriptor, content, cont_len, 0);
 
-
-            // char path[MAX_PATH_LENGTH];
-            
-            // scanf("%s", path);
-            // path[strlen(path)] = '\0';
-            // uint32_t len = strlen(path);
-            
-            // send(socket_descriptor, &len, sizeof(len), 0);
-            // send(socket_descriptor, path, len, 0);
-
-            // uint32_t start_byte;
-            // printf("Select start byte: ");
-            // if (scanf("%u", &start_byte) != 1) {
-            //     printf("Error: Failed to read uint32_t.\n");
-            //     return 1;
-            // }
-            // printf("\nEnter the new sequence to insert:");
-
-            // send(socket_descriptor, &start_byte, sizeof(start_byte), 0);
-            // int size = 10;
-            // char new_sequence[MAX_CONTENT_LENGTH];
-            // uint32_t buffer_size = 0;
-            
-            // scanf("%s", new_sequence);
-            // buffer_size = strlen(new_sequence);
-            // send(socket_descriptor, &buffer_size, sizeof(buffer_size), 0);
-            // send(socket_descriptor, new_sequence, buffer_size, 0);
-            
-            // int ok = 0;
-            // while(ok == 0)
-            // {
-            //     scanf("%s", new_sequence);
-            //     printf("secventa = %s\n", new_sequence);
-            //     buffer_size = strlen(new_sequence);
-            //     if(buffer_size < MAX_CONTENT_LENGTH)
-            //         ok = 1;
-            //     send(socket_descriptor, &buffer_size, sizeof(buffer_size), 0);
-            //     send(socket_descriptor, new_sequence, buffer_size, 0);
-            // }
-
-            // char ch;
-            // int i;
-            // char c = getchar();
-            // printf("%c \n",c);
-            
-            // for(i=0;(ch=getchar()) !='\n' && ch != EOF;++i){
-            //     if( i == size){
-            //         size = 2*size;
-            //         new_sequence = myRealloc(new_sequence, size*sizeof(char));
-            //         if(new_sequence == NULL){
-            //             printf("Error Unable to Grow String! :(");
-            //             exit(-1);
-            //         }
-            //     } 
-            //     new_sequence[i] = ch;
-            // }
-
-            // if(i == size){
-            //     new_sequence = myRealloc(new_sequence, (size+1)*sizeof(char));
-            //     if(new_sequence == NULL){
-            //         printf("Error Unable to Grow String! :(");
-            //         exit(-1);
-            //     }
-
-            // }
-            // new_sequence[i] = '\0';
-            // buffer_size = strlen(new_sequence);
-            // printf("%s\n", new_sequence);
-
-            // send(socket_descriptor, &buffer_size, sizeof(buffer_size), 0);
-            // send(socket_descriptor, new_sequence, strlen(new_sequence), 0);
-
             if(recv(socket_descriptor, &status_code, sizeof(status_code), 0) < 0)
             {
                 perror("Error receiving status.\n");
@@ -701,22 +597,18 @@ void handle_option(int socket_descriptor)
             uint32_t len = strlen(word);
             word[len] = '\0';
 
-            printf("Len sen t%d\n", len);
-            printf("Word = %s\n", word);
-
             send(socket_descriptor, &len, sizeof(len), 0);
             send(socket_descriptor, word, len, 0);
 
             uint32_t status;            
             recv(socket_descriptor, &status, sizeof(status), 0);
             
-            printf("Status: %u", status);
+            printf("Status: %u\n", status);
 
             if(status == SUCCESS)
             {
                 uint32_t len_list = 0;
                 recv (socket_descriptor, &len_list, sizeof(len_list), 0);
-                printf("Lenght list = %d\n", len_list);
 
                 char* list = malloc(len_list + 1);
                 recv(socket_descriptor, list, len_list, 0);
@@ -744,13 +636,13 @@ int main(int argc, char** argv)
     char client_message[2000], server_message[2000];
 
     socket_descriptor = socket(AF_INET, SOCK_STREAM, 0);
-    // printf("aici\n");
+
     if(socket_descriptor < 0)
     {
         perror("Unable to create socket.\n");
         return -1;
     }
-// printf("aici\n");
+
     printf("Socket created successfully.\n");
 
     server_add.sin_family = AF_INET;
@@ -759,20 +651,19 @@ int main(int argc, char** argv)
 
     initializeFiles();
     addAllFiles();
-    
-// printf("aici\n");
+
     if(connect(socket_descriptor, (struct sockaddr *) &server_add, sizeof(server_add)) < 0)
     {
         perror("Unable to connect\n");
         return -1;
     }
-// printf("aici\n");
+
     printf("Connected with the server successfully.\n");
 
     client_menu();
 
     while(1) {
-        // printf("Option: %x\n",option);
+
         handle_option(socket_descriptor);
     }
 
@@ -780,4 +671,5 @@ int main(int argc, char** argv)
     
     return 0;
 }
+
 
