@@ -510,10 +510,10 @@ void handle_option(int socket_descriptor)
             char path[MAX_PATH_LENGTH];
             printf("Select filepath to delete: ");
             scanf("%s", &path);
-            printf("Path: %s", path);
+            printf("Path: %s\n", path);
             uint32_t length = strlen(path);
             path[length] = '\0';
-            printf("Length: %u", length);
+            printf("Length: %u\n", length);
             if(send(socket_descriptor, &length, sizeof(length), 0) < 0) {
                 perror("Unable to send message.\n");
                 return -1;
@@ -531,7 +531,7 @@ void handle_option(int socket_descriptor)
                 return -1;
             }
 
-            printf("Status %d", op_status);
+            printf("Status %d\n", op_status);
 
         }
             break;
@@ -693,7 +693,44 @@ void handle_option(int socket_descriptor)
             // free(new_sequence);
         }
             break;
-        case 0x20:
+        case 20:
+        {
+            printf("Enter word to be searched: ");
+            char word[MAX_PATH_LENGTH];
+            scanf("%s", word);
+            uint32_t len = strlen(word);
+            word[len] = '\0';
+
+            printf("Len sen t%d\n", len);
+            printf("Word = %s\n", word);
+
+            send(socket_descriptor, &len, sizeof(len), 0);
+            send(socket_descriptor, word, len, 0);
+
+            uint32_t status;            
+            recv(socket_descriptor, &status, sizeof(status), 0);
+            
+            printf("Status: %u", status);
+
+            if(status == SUCCESS)
+            {
+                uint32_t len_list = 0;
+                recv (socket_descriptor, &len_list, sizeof(len_list), 0);
+                printf("Lenght list = %d\n", len_list);
+
+                char* list = malloc(len_list + 1);
+                recv(socket_descriptor, list, len_list, 0);
+
+                for(int i = 0; i < len_list; i++)
+                {
+                    if(list[i]=='\0')
+                        printf("\n");
+                    else 
+                        printf("%c", list[i]);
+                }
+                free(list);
+            }
+        }
             break;
         default:
             break;
