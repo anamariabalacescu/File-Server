@@ -1,16 +1,18 @@
 #include "general_usage.h"
 
+const char* ramPath = './ServerRam';
+typedef struct word_data{
+    char *word;
+    int occurences;
+}word_data;
 
 typedef struct file_data{
     char *name;
-    char **top10;  /*cele mai cautate 10 cuvinte*/
-    int *count10;
-    int in10;
-
-    char **words;
-    int *word_count;
-    int words_total;
+    word_data *words;
+    int numberOfWords;
 }file_data;
+
+
 
 file_data *files = NULL;
 int file_number = 0;
@@ -20,14 +22,215 @@ int received_signal = 0;
 
 pthread_mutex_t sig_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-void handle_signal(int signum)
+int countNumberOfLinesForFile (const char* filename)
 {
-    if(signum == SIGTERM || signum == SIGINT)
+    FILE *fp = fopen(filename, "r");
+    int ch = 0;
+    int lines = 0;
+
+    if (fp == NULL)
+        return 0;
+
+    lines++;
+    while ((ch = fgetc(fp)) != EOF)
     {
-        pthread_mutex_lock(&sig_mutex);
-        received_signal = 1;
-        pthread_mutex_unlock(&sig_mutex);
-        close(epoll_fd);
+        if (ch == '\n')
+            lines++;
+    }
+    fclose(fp);
+    return lines;
+}
+void sortWordDataVectorByNumberOfOccurences(word_data* vector, int numberOfWords)
+{
+    for(int i = 0; i < numberOfWords - 1; i++)
+        for(int j = i + 1; j < numberOfWords; j++)
+            if(vector[i].occurences < vector[j].occurences)
+            {
+                word_data aux = vector[i];
+                vector[i] = vector[j];
+                vector[j] = aux;
+            }
+}
+
+void addNewWordToVector(word_data* vector, int* numberOfWords, char* word)
+{
+    int found = 0;
+    for(int i = 0; i < *numberOfWords; i++)
+        if(strcmp(vector[i].word, word) == 0)
+        {
+            vector[i].occurences++;
+            found = 1;
+            break;
+        }
+    if(found == 0)
+    {
+        vector = realloc(vector, sizeof(word_data) * (*numberOfWords + 1));
+        vector[*numberOfWords].word = malloc(strlen(word) + 1);
+        strcpy(vector[*numberOfWords].word, word);
+        vector[*numberOfWords].word[strlen(word)] = '\0';
+        vector[*numberOfWords].occurences = 1;
+        (*numberOfWords)++;
+    }
+}
+
+word_data* readAllWordsFromFile(char* filename, int *numberOfWords, int maxNumberOfWords)
+{ 
+    // verificare daca exista fisierul
+    
+    FILE *fp1 = fopen(filename, "r");
+    if(fp1 == NULL)
+    {
+        createDirectories(filename);
+        FILE *fp2 = fopen(filename, "w");
+        fclose(fp2);
+    }
+    else
+        fclose(fp1);
+
+    FILE *fp = fopen(filename, "r");
+
+    if(maxNumberOfWords == -1)
+        *numberOfWords = countNumberOfLinesForFile(filename) - 1;
+    else
+        *numberOfWords = maxNumberOfWords;
+    word_data* vector = malloc(sizeof(word_data) * (*numberOfWords));
+    char* word = malloc(100);
+    int i = 0;
+    while(i < *numberOfWords || fscanf(fp, "%s %d", word, &vector[i].occurences) != EOF)
+    {        
+        vector[i].word = malloc(strlen(word) + 1);
+        strcpy(vector[i].word, word);
+        vector[i].word[strlen(word)] = '\0';
+        i++;
+    }
+    *numberOfWords = i;
+    fclose(fp);
+    return vector;
+}
+
+void overWriteFileWithVector(char* filename, word_data* vector, int numberOfWords)
+{
+    FILE *fp = fopen(filename, "w");
+    if(fp == NULL)
+    {
+        perror("Error opening file");
+        exit(1);
+    }
+    for(int i = 0; i < numberOfWords; i++) {
+        printf("%s %d\n", vector[i].word, vector[i].occurences);
+        fprintf(fp, "%s %d\n", vector[i].word, vector[i].occurences);
+    }
+    fclose(fp);
+}
+
+void addFileWordOccurrence(const char * filename, char* word)
+{
+    char path1[500] = "./ServerRam";
+    strcat(path1, filename+1);
+    int numberOfWords = 0;
+    printf("path = %s\n", path1, word, numberOfWords);
+    struct word_data* vector = readAllWordsFromFile(path1, &numberOfWords,-1);
+    addNewWordToVector(vector, &numberOfWords, word);
+    sortWordDataVectorByNumberOfOccurences(vector, numberOfWords);
+    overWriteFileWithVector(path1, vector, numberOfWords);
+}
+
+word_data* getTop10WordsForFile(const char* filename, int* numberOfWords)
+{
+    char path[500] = "./ServerRam";
+    strcat(path, filename+1);
+    struct word_data* vector = readAllWordsFromFile(path, numberOfWords, 10);
+    return vector;
+}
+
+void setToFileDataTop10Words (file_data* file)
+{
+    if (file->words != NULL)
+        free(file->words);
+    file->words = getTop10WordsForFile(file->name, &file->numberOfWords);
+}
+
+void handle_signal()
+{
+    // Create an epoll instance
+    int epoll_fd1 = epoll_create1(0);
+    if (epoll_fd1 == -1) {
+        perror("epoll_create1");
+        return -1;
+    }
+
+    // Set up signal handling
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGINT);
+
+    // Create a signalfd
+    int signal_fd = signalfd(-1, &mask, 0);
+    printf("signal_fd = %d\n", signal_fd);
+    if (signal_fd == -1) {
+        perror("signalfd");
+        close(epoll_fd1);
+        return -1;
+    }
+
+    // Add the signalfd to epoll
+    struct epoll_event event;
+    event.events = EPOLLIN | EPOLLET;
+    event.data.fd = signal_fd;
+
+    if (epoll_ctl(epoll_fd1, EPOLL_CTL_ADD, signal_fd, &event) == -1) {
+        perror("epoll_ctl error adding signal_fd");
+        close(epoll_fd1);
+        close(signal_fd);
+        return -1;
+    }
+
+
+    struct epoll_event event_stdin;
+    event_stdin.events = EPOLLIN | EPOLLET;
+    event_stdin.data.fd = STDIN_FILENO;
+
+    if (epoll_ctl(epoll_fd1, EPOLL_CTL_ADD, event_stdin.data.fd, &event_stdin) == -1) {
+        perror("Error adding fdin to epoll");
+        close(epoll_fd1);
+        return -1;
+    }
+    
+    struct epoll_event events1[1];
+    int nr_events = epoll_wait(epoll_fd1, events1, 1, -1);
+    if(nr_events > 0)
+    {//1 event, no need for loops  --epoll_create(1);
+        if(events1[0].data.fd == STDIN_FILENO)
+        {
+            char buffer[MAX_PATH_LENGTH];
+            fgets(buffer, MAX_PATH_LENGTH, stdin);
+            if(strcmp(buffer, "quit") == 0)
+            {
+                pthread_mutex_lock(&sig_mutex);
+                printf("Received quit command\n");
+                received_signal = 1;
+                pthread_mutex_unlock(&sig_mutex);
+            }
+        }
+        else if(events1[0].data.fd == event.data.fd)
+        {
+            struct signalfd_siginfo si;
+            ssize_t res = read(event.data.fd, &si, sizeof(struct signalfd_siginfo));
+            if(res != sizeof(struct signalfd_siginfo))
+            {
+                perror("Error reading signal");
+                close(epoll_fd1);
+                return -1;
+            }
+            if(si.ssi_signo == SIGINT)
+            {
+                pthread_mutex_lock(&sig_mutex);
+                printf("Received SIGINT\n");
+                received_signal = 1;
+                pthread_mutex_unlock(&sig_mutex);
+            }
+        }
+
     }
 
 }
@@ -75,19 +278,7 @@ void initializeFiles()
     for(int i = 0; i < 10; i++)
     {
         files[i].name = NULL;
-        files[i].count10 = (int*) malloc(sizeof(int) * 10);
-        files[i].in10 = 0;  // Corrected the typo
-        files[i].top10 = (char**)malloc(sizeof(char*) * 10);
-        for (int j = 0; j < 10; j++) {
-            files[i].top10[j] = NULL;
-        }
 
-        files[i].words = (char**)malloc(sizeof(char*) * 10);
-        for (int j = 0; j < 10; j++) {
-            files[i].words[j] = NULL;
-        }
-        files[i].words_total = 0;
-        files[i].word_count = (int*) malloc(sizeof(int) * 10);
     }
 }
 
@@ -96,21 +287,7 @@ void freeFiles()
     for(int i = 0; i < file_number; i++)
     {
         free(files[i].name);
-        
-        for(int j = 0; j < files[i].in10; j++)
-        {
-            free(files[i].top10[j]);
-        }
-        free(files[i].top10);
-        free(files[i].count10);
 
-        for(int j = 0; j < files[i].words_total; j++)
-        {
-            free(files[i].words[j]);
-            free(files[i].word_count[j]);
-        }
-        free(files[i].words);
-        free(files[i].word_count);
     }
     free(files);
 }
@@ -129,20 +306,8 @@ int removeFile(char *filename) {
     if (found) {
         // Free memory for the file data
         free(files[i].name);
-        for (int j = 0; j < files[i].in10; j++) {
-            if(files[i].top10[j]!=NULL)
-            {
-                free(files[i].top10[j]);
-            }
-        }
-        if(files[i].top10 != NULL) free(files[i].top10);
-        if(files[i].count10 != NULL) free(files[i].count10);
-        for (int j = 0; j < files[i].words_total; j++) {
-            if(files[i].words[j]!=NULL)
-                free(files[i].words[j]);
-        }
-        if(files[i].words != NULL) free(files[i].words);
-        if(files[i].word_count != NULL) free(files[i].word_count);
+        if(files[i].words != NULL)
+            free(files[i].words);
         for (int j = i; j < file_number - 1; j++) {
             files[j] = files[j + 1];
         }
@@ -165,12 +330,7 @@ int addFile(char *filename)
     files[file_number].name = (char*) malloc (sizeof(char) * strlen(filename));
     strcpy(files[file_number].name, filename);
     files[file_number].name[strlen(filename)] = NULL;
-    files[file_number].top10=NULL;
-    files[file_number].count10=NULL;
-    files[file_number].words =NULL;
-    files[file_number].word_count =NULL;
-    files[file_number].in10 = 0;
-    files[file_number].words_total =0;
+    files[file_number].words = NULL;
     file_number++;
 }
 
@@ -185,14 +345,7 @@ void listFilesRecursively(char *basePath, file_data *files, int *index) {
                 files[*index].name = (char *)malloc(strlen(basePath) + strlen(ent->d_name) + 3);  // +1 for '/', +1 for '\0'
                 snprintf(files[*index].name, strlen(basePath) + strlen(ent->d_name) + 2, "%s/%s", basePath, ent->d_name);
                 files[*index].name[strlen(basePath) + strlen(ent->d_name) + 2] = '\0';
-
-                // Initialize other fields in file_data
-                files[*index].top10 = NULL;  // Initialize accordingly
-                files[*index].count10 = NULL;  // Initialize accordingly
-                files[*index].in10 = 0;
-                files[*index].words = NULL;  // Initialize accordingly
-                files[*index].word_count = NULL;  // Initialize accordingly
-                files[*index].words_total = 0;
+                files[*index].words = NULL;
 
                 (*index)++;
             } else if (ent->d_type == DT_DIR && strcmp(ent->d_name, ".") != 0 && strcmp(ent->d_name, "..") != 0) {
@@ -236,144 +389,6 @@ int searchForFile(char *filename)
             return i;
     }
     return -1;
-}
-
-int inTop10(char *filename, char *word)
-{
-    int i = 0;
-    while(i < file_number) {
-        if(strcmp(files[i].name, filename) == 0)
-        {
-            int j = 0;
-            while(files[i].top10[j] != NULL) {
-                if(strcmp(files[i].top10[j], word) == 0) {
-                    files[i].count10[j]++; //increase appearance;
-                    return j;
-                }
-            }
-        }
-        i++;
-    }
-    return -1;
-}
-
-void addCountTop10(char *filename, char *word, int p)
-{
-    int i = 0;
-    int ok = 0;
-    while(i < file_number && ok == 0) {
-        if(strcmp(files[i].name, filename) == 0)
-        {
-            files[i].count10[p]++;
-            ok = 1;
-        }
-        i++;
-    }
-}
-
-void addTop10(char* filename, char *word, int appearances)
-{
-    int i = 0;
-    while(strcmp(files[i].name, filename)!=0) i++;
-
-    if(strcmp(files[i].name, filename) == 0)
-    {
-        if(files[i].in10 < 10) {
-            files[i].in10++;
-            int x = files[i].in10;
-            files[i].top10[x] = (char*) malloc(sizeof(char) * (strlen(word) + 1));
-            strcpy(files[i].top10[x], word);
-            files[i].top10[x][strlen(word)] = '\n';
-        }
-        else {
-            int x = files[i].in10;
-            int y = x;
-            int ok = 0;
-            while(x > -1 && ok == 0)
-            {
-                if(files[i].count10[x] > appearances)
-                    ok = 1;
-                else
-                    x--;
-            }
-            for(int j = y; j > x; j--)
-            {
-                strcpy(files[i].top10[j], files[i].top10[j-1]);
-                files[i].count10[j] = files[i].count10[j-1];
-            }
-            strcpy(files[i].top10[x], word);
-            files[i].count10[x] = appearances; 
-        }
-    }
-}
-
-int inBigList(char *filename, char *word)
-{
-    int i = 0;
-    while(i < file_number) {
-        if(strcmp(files[i].name, filename) == 0)
-        {
-            int j = 0;
-             while(files[i].words[j] != NULL) {
-                if(strcmp(files[i].words[j], word) == 0) {
-                    files[i].word_count[j]++; //increase appearances
-                    addTop10(filename, word, files[i].word_count[j]);
-                    return j;
-                }
-            }
-        }
-        i++;
-    }
-    return -1;
-}
-
-void add_count_word(char *filename, char *word, int p)
-{
-    int i = 0;
-    int ok = 0;
-    while(i < file_number && ok == 0){
-        if(strcmp(files[i].name, filename) == 0)
-        {
-            files[i].word_count[p]++;
-            ok = 1;
-        }
-        i++;
-    } 
-}
-
-void addBigList(char* filename, char *word)
-{
-    int i = 0;
-    while(strcmp(files[i].name, filename)!=0) i++;
-
-    int appearances = 0;
-    int j = 0;
-    while(strcmp(files[i].words[j], word) != 0)
-    {
-        j++;
-    }
-    appearances = files[i].word_count[j];
-
-    if(strcmp(files[i].name, filename) == 0)
-    {
-        int x = files[i].words_total;
-        int y = x;
-        int ok = 0;
-        while(x > -1 && ok == 0)
-        {
-            if(files[i].word_count[x] > appearances)
-                ok = 1;
-            else
-                x--;
-        }
-        for(int j = y; j > x; j--)
-        {
-            strcpy(files[i].words[j], files[i].words[j-1]);
-            files[i].word_count[j] = files[i].word_count[j-1];
-        }
-        strcpy(files[i].words[x], word);
-        files[i].count10[x] = appearances; 
-    }
 }
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -458,7 +473,7 @@ void createDirectories(const char *filePath) {
     char *pathCopy = strdup(filePath);  // Make a copy to avoid modifying the original string
     char *token = strtok(pathCopy, "/");
 
-    char currentPath[1024] = "";  // Assuming a reasonable buffer size
+    char currentPath[MAX_PATH_LENGTH] = "";  // Assuming a reasonable buffer size
 
     strcat(currentPath, "./"); 
     while (token != NULL) {
@@ -581,7 +596,10 @@ int searchWordInFile(char *filename, char *word) {
             fclose(file);
 
             //addBigList(filename, word);
-
+            addFileWordOccurrence(filename, word);
+            int index = searchForFile(filename);
+            if(index > -1)
+                setToFileDataTop10Words(&files[index]);
             return 1; // Word found
         }
     }
@@ -633,10 +651,9 @@ void handle_instruction(int client_desc, uint32_t operation) {
     switch (operation) {
         case LIST:
         {
+            
             uint32_t status = SUCCESS;
-
             send(client_desc, &status, sizeof(status), 0);
-
             uint32_t totalLength = 0;
             for (int i = 0; i < file_number; i++) {
                 totalLength += strlen(files[i].name) + 1; 
@@ -1024,24 +1041,32 @@ void *handle_client(void *socket_descriptor) {
     uint32_t byteSize = 0;
 
     //getting connections
-    while (1) {
+    while (!received_signal) {
+        if(received_signal == 1)
+        {
+            printf("Received signal to quit\n");
+            break;
+        }
         // Wait for client message
-        
-        uint32_t operation;
+        printf("Still work before receive.. \n");
         pthread_mutex_lock(&mutex);
+        uint32_t operation;
         if(recv(client_desc, &operation, sizeof(operation), 0) < 0) {
             perror("Error while receiving server's message.\n");
             return -1;
         }
+        printf("Still work after.. \n");
+
 
         printf("Operatie: %u\n", operation);
         //locking connection so it doesn't receive messages while sending out => noise reduction
-
+        printf("Still work.. \n");
 
         handle_instruction(client_desc, operation);//, client_message);
-
-        //unlocking for further connections;
         pthread_mutex_unlock(&mutex);
+        //unlocking for further connections;
+        //pthread_mutex_unlock(&mutex);
+        printf("Still work.. \n");
         //memset(client_message, '\0', sizeof(client_message));
     }
 
@@ -1090,7 +1115,7 @@ int main(int argc, char **argv) {
     event.events = EPOLLIN | EPOLLET; // edge-triggered
     event.data.fd = socket_desc;
 
-    epoll_fd = epoll_create1(0);
+    int epoll_fd = epoll_create1(0);
     if (epoll_fd == -1) {
         perror("Error creating epoll");
         return -1;
@@ -1107,69 +1132,32 @@ int main(int argc, char **argv) {
         printf("Mutex initialization failed.\n");
         return -1;
     }
-
-    // printf("aici\n");
-
-
+    //signal handling thread
     sigset_t mask;
-    sigemptyset(&mask);
-    sigaddset(&mask, SIGTERM);
-    sigaddset(&mask, SIGINT);
-    if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1) {
-        perror("sigprocmask");
-        exit(EXIT_FAILURE);
-    }
-
-    int signal_fd = signalfd(-1, &mask, 0);
-
-    // Add signalfd to epoll --treating signal in server for graceful termination
-    event.events = EPOLLIN | EPOLLET;
-    event.data.fd = signal_fd;
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, signal_fd, &event) == -1) {
-        perror("Error adding signalfd to epoll");
-        close(epoll_fd);
-        close(signal_fd);
-        close(socket_desc);
+    sigfillset(&mask);
+    sigprocmask(SIG_BLOCK, &mask, NULL);
+    pthread_t thrd_id;
+    if (pthread_create(&thrd_id, NULL, handle_signal, NULL) < 0) {
+        perror("Couldn't create thread");
         return -1;
     }
+
+    // printf("aici\n");
 
     initializeFiles();
     addAllFiles();
 
-    //for input signals
-    fd_set input_set;
-    FD_ZERO(&input_set);
-    FD_SET(STDIN_FILENO, &input_set);
-
     while (!received_signal) {
+        if(received_signal == 1)
+        {
+            printf("Received signal to quit\n");
+            break;
+        }
         //printf("Entered while\n");
         struct epoll_event events[CLIENTS];
         int num_events = epoll_wait(epoll_fd, events, CLIENTS, -1);
 
-        struct timeval timeout;
-        timeout.tv_sec = 0;
-        timeout.tv_usec = 100000; // 100 milliseconds
-
-        int ready = select(STDIN_FILENO + 1, &input_set, NULL, NULL, &timeout);
-
-        if (ready > 0) {
-            char input_buffer[5];
-            if (fgets(input_buffer, sizeof(input_buffer), stdin) != NULL) {
-                input_buffer[strcspn(input_buffer, "\n")] = '\0';
-                if (strcmp(input_buffer, "quit") == 0) {
-                    pthread_mutex_lock(&sig_mutex);
-                    received_signal = 1;
-                    pthread_mutex_unlock(&sig_mutex);
-                    break;
-                }
-            }
-        }//for quit
-
         for (int i = 0; i < num_events; ++i) {
-            if(events[i].data.fd == signal_fd)
-            {
-                handle_signal(signal_fd);
-            }
             if (events[i].data.fd == socket_desc) {
                 printf("Entered events\n");
                 // Accept new connections
@@ -1195,9 +1183,15 @@ int main(int argc, char **argv) {
             } else {
                 // Handle existing connections
                 pthread_t thrd_id;
-
+                printf("Entered else\n");
                 if (pthread_create(&thrd_id, NULL, handle_client, &(events[i].data.fd)) < 0) {
                     perror("Couldn't create thread");
+                    return -1;
+                }
+
+                // wait for thread to finish
+                if (pthread_join(thrd_id, NULL) < 0) {
+                    perror("Couldn't join thread");
                     return -1;
                 }
 
@@ -1209,7 +1203,6 @@ int main(int argc, char **argv) {
     freeFiles();
 
     close(epoll_fd);
-    close(signal_fd);
     close(socket_desc);
 
     return 0;
